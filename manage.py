@@ -5,6 +5,13 @@ import sys
 
 
 def main():
+    import os 
+    if os.path.exists('.env'):
+        with open('.env') as f:
+            for line in f:
+                if line.strip() and not line.startswith('#'):
+                    key, value = line.strip.split('=', 1)
+                    os.environ.setdefault(key.strip(), value.strip())
     """Run administrative tasks."""
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
     try:
