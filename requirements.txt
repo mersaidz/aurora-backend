@@ -4,9 +4,12 @@ cryptography==48.0.0
 Django==6.0.4
 django-appconf==1.2.0
 djangorestframework==3.17.1
+djangorestframework_simplejwt==5.5.1
 psycopg2-binary==2.9.11
 pyasn1==0.6.3
 pycparser==3.0
 pycrypto==2.6.1
+PyJWT==2.13.0
+python-dotenv==1.2.2
 python-keyczar==0.716
 sqlparse==0.5.5
