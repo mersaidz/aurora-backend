@@ -1,6 +1,23 @@
 from rest_framework import serializers
-from django.db import transaction 
-from .models import User, AthleteProfile 
+from django.db import transaction
+from django.utils import timezone
+
+from users.models import AthleteProfile, User
+
+
+def _calculate_age(birth_date):
+    """
+    Compute age in full years from a birth date. Returns None for falsy input.
+    Same algorithm used by AthleteProfile.age, extracted here so the
+    serializer can validate without instantiating a throwaway model object.
+    """
+    if not birth_date:
+        return None
+    today = timezone.now().date()
+    return today.year - birth_date.year - (
+        (today.month, today.day) < (birth_date.month, birth_date.day)
+    )
+
 
 class AthleteProfileSerializer(serializers.ModelSerializer):
     age = serializers.ReadOnlyField()
@@ -15,23 +32,36 @@ class AthleteProfileSerializer(serializers.ModelSerializer):
             'weight',
             'unit_system',
             'is_onboarded',
-            'updated_at'
+            'updated_at',
         ]
         read_only_fields = ['age', 'updated_at']
+
     def validate_birth_date(self, value):
-        if value:
-            from .models import AthleteProfile
-            temporary_profile = AthleteProfile(birth_date=value)
-            age = temporary_profile.age
-            if age is not None:
-                if age < 10:
-                    raise serializers.ValidationError("Athlete Profile is available for users aged 10 and above.")
-                if age > 100:
-                    raise serializers.ValidationError("Please enter a valid birth date.")
+        if not value:
+            return value
+
+        today = timezone.now().date()
+        if value > today:
+            raise serializers.ValidationError("Birth date cannot be in the future.")
+
+        age = _calculate_age(value)
+        if age is None:
+            return value
+        # 14+ is our legal floor — keeps us out of the under-13 data privacy
+        # regime (COPPA in the US, similar carve-outs in EU/UK) by avoiding
+        # data collection from minors at the most regulated tier.
+        if age < 14:
+            raise serializers.ValidationError(
+                "Aurora is available for users aged 14 and above."
+            )
+        if age > 100:
+            raise serializers.ValidationError("Please enter a valid birth date.")
         return value
+
 
 class UserSerializer(serializers.ModelSerializer):
     profile = AthleteProfileSerializer(source='athlete_profile', required=False)
+
     class Meta:
         model = User
         fields = [
@@ -39,27 +69,36 @@ class UserSerializer(serializers.ModelSerializer):
             'email',
             'role',
             'date_joined',
-            'profile'
+            'profile',
         ]
         read_only_fields = ['id', 'email', 'role', 'date_joined']
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        request = self.context.get('request')
-        if request and request.method == 'PATCH':
-            if 'profile' in self.fields:
-                self.fields['profile'].required = False
-                self.fields['profile'].partial = True
-    
+        # Honestly, DRF is kinda weird here. It doesn't pass 'partial=True' to nested serializers
+        # automatically. So if a user sends a PATCH request just to update their weight, 
+        # the profile serializer will crash complaining about other missing required fields.
+        #
+        # I spent some time figuring this out, and this feels like a temporary workaround (or maybe not?), 
+        # but forcing 'partial=True' directly into the profile field fixes the issue for now.
+        if getattr(self, 'partial', False) and 'profile' in self.fields:
+            self.fields['profile'].partial = True
 
+    @transaction.atomic
     def update(self, instance, validated_data):
         profile_data = validated_data.pop('athlete_profile', None)
 
-        with transaction.atomic():
-            instance = super().update(instance, validated_data)
-            if profile_data is not None:
-                profile, created = AthleteProfile.objects.get_or_create(user=instance)
-                for attr, value in profile_data.items():
-                    setattr(profile, attr, value)
-                profile.save()
-            return instance 
+        # Locking the user row to prevent concurrent PATCH requests from messing with get_or_create().
+        # I guess select_for_update() should stop the parallel requests from blowing up on the OneToOne profile constraint.
+        # Will test anyway
+        User.objects.select_for_update().get(pk=instance.pk)
+
+        instance = super().update(instance, validated_data)
+
+        if profile_data is not None:
+            profile, _ = AthleteProfile.objects.get_or_create(user=instance)
+            for attr, value in profile_data.items():
+                setattr(profile, attr, value)
+            profile.save()
+
+        return instance
