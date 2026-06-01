@@ -2,13 +2,13 @@ from rest_framework import serializers
 from django.db import transaction
 from django.utils import timezone
 
-from users.models import AthleteProfile, User
+from users.models import UserProfile, User
 
 
 def _calculate_age(birth_date):
     """
     Compute age in full years from a birth date. Returns None for falsy input.
-    Same algorithm used by AthleteProfile.age, extracted here so the
+    Same algorithm used by UserProfile.age, extracted here so the
     serializer can validate without instantiating a throwaway model object.
     """
     if not birth_date:
@@ -19,11 +19,11 @@ def _calculate_age(birth_date):
     )
 
 
-class AthleteProfileSerializer(serializers.ModelSerializer):
+class UserProfileSerializer(serializers.ModelSerializer):
     age = serializers.ReadOnlyField()
 
     class Meta:
-        model = AthleteProfile
+        model = UserProfile
         fields = [
             'gender',
             'birth_date',
@@ -60,7 +60,7 @@ class AthleteProfileSerializer(serializers.ModelSerializer):
 
 
 class UserSerializer(serializers.ModelSerializer):
-    profile = AthleteProfileSerializer(source='athlete_profile', required=False)
+    profile = UserProfileSerializer(required=False)
 
     class Meta:
         model = User
@@ -86,7 +86,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def update(self, instance, validated_data):
-        profile_data = validated_data.pop('athlete_profile', None)
+        profile_data = validated_data.pop('profile', None)
 
         # Locking the user row to prevent concurrent PATCH requests from messing with get_or_create().
         # I guess select_for_update() should stop the parallel requests from blowing up on the OneToOne profile constraint.
@@ -96,7 +96,7 @@ class UserSerializer(serializers.ModelSerializer):
         instance = super().update(instance, validated_data)
 
         if profile_data is not None:
-            profile, _ = AthleteProfile.objects.get_or_create(user=instance)
+            profile, _ = UserProfile.objects.get_or_create(user=instance)
             for attr, value in profile_data.items():
                 setattr(profile, attr, value)
             profile.save()

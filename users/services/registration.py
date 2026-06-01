@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 from django.db import transaction
-from users.models import AthleteProfile, User
+from users.models import UserProfile, User
 
 
 def register_user(*, email: str, password: str, **extra_fields) -> User:
     """
-    Create a User and its AthleteProfile in a single atomic transaction.
+    Create a User and its UserProfile in a single atomic transaction.
 
     Dealing with database transactions always makes me check the docs twice, 
     but we absolutely need 'transaction.atomic' here. If we don't wrap this, we risk 
@@ -23,5 +23,5 @@ def register_user(*, email: str, password: str, **extra_fields) -> User:
         user = User.objects.create_user(email=email, password=password, **extra_fields)
         
         # Defensive check in case the signal already created the profile.
-        AthleteProfile.objects.get_or_create(user=user)
+        UserProfile.objects.get_or_create(user=user)
         return user

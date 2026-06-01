@@ -3,7 +3,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.forms import ReadOnlyPasswordHashField
 
-from users.models import AthleteProfile, User
+from users.models import UserProfile, User
 
 
 # Admin forms — we need custom forms because i made customuser(Abstract) with email instead username.
@@ -87,8 +87,8 @@ class UserAdmin(BaseUserAdmin):
         return obj.get_display_name()
 
 
-@admin.register(AthleteProfile)
-class AthleteProfileAdmin(admin.ModelAdmin):
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
     list_display = (
         'user', 'gender', 'birth_date',
         'height', 'weight', 'unit_system', 'is_onboarded',

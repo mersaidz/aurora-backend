@@ -96,7 +96,7 @@ class User(AbstractUser):
         return self.email or f"User #{self.pk}"
 
 
-class AthleteProfile(models.Model):
+class UserProfile(models.Model):
     class UnitSystem(models.TextChoices):
         METRIC = 'METRIC', 'Metric (cm, kg)'
         IMPERIAL = 'IMPERIAL', 'Imperial (inches, lbs)'
@@ -106,7 +106,7 @@ class AthleteProfile(models.Model):
         FEMALE = 'FEMALE', 'Female'
         OTHER = 'OTHER', 'Other'
 
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='athlete_profile')
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     gender = models.CharField(max_length=10, choices=Gender.choices, null=True, blank=True)
     birth_date = models.DateField('Birth Date', null=True, blank=True)
 

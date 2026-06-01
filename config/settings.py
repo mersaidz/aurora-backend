@@ -19,7 +19,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / '.env')
 
-SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-local-dev-fallback-key-12345')
+SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 
 
 # Quick-start development settings - unsuitable for production
@@ -115,6 +115,8 @@ SIMPLE_JWT = {
     'USER_ID_CLAIM': 'user_id',
 
     'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
+
+    'USER_AUTHENTICATION_RULE': 'config.rules.universal_user_authentication_rule'
 
 }
 
