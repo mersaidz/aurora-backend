@@ -102,3 +102,33 @@ class UserSerializer(serializers.ModelSerializer):
             profile.save()
 
         return instance
+
+class RegisterUserSerializer(serializers.Serializer):
+    #Public registration entrypoint.
+    # Plain Serializer gives explicit control over what's accepted from the wire
+    email = serializers.EmailField()
+    password = serializers.CharField(
+        write_only = True,
+        min_length = 8,
+        style = {'input_type':'password'},
+    )
+    role = serializers.ChoiceField(
+        choices = User.Role.choices,
+        default = User.Role.ATHLETE,
+        required = False,
+    )
+
+    def validate_email(self,value):
+        normalized = User.objects.normalize_email(value)
+        if User.objects.filter(email=normalized).exists():
+            raise serializers.ValidationError("Account with this email already exists.")
+        return normalized
+
+    def validate_password(self,value):
+        from django.contrib.auth.password_validation import validate_password
+        validate_password(value)
+        return value 
+    
+    def create(self,validated_data):
+        from users.services.registration import register_user
+        return register_user(**validated_data)

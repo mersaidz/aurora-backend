@@ -9,7 +9,15 @@ class UserManager(BaseUserManager):
     #Default manager — sees ALL users including soft-deleted ones.
     #Used by Django auth, admin, and SimpleJWT so that a soft-deleted user
     #gets a clean "account deactivated" experience instead of "user does not exist".
-    
+
+    @classmethod
+    def normalize_email(cls,email):
+        # Lowercase whole email not just the domain, did some tests via insomnia before
+        # and found edgecase. Created 'newuser@aurora.test' and 'Newuser@aurora.test' as separate accounts successfully
+        # Quick fix.
+        normalized = super().normalize_email(email)
+        return normalized.lower() if normalized else normalized
+
 
     def create_user(self, email, password=None, **extra_fields):
         if not email:
