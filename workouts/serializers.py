@@ -231,9 +231,13 @@ class HealthMetricsSerializer(serializers.ModelSerializer):
 
         # Lock all (user, date) rows so concurrent inserts serialize on this set.
         # select_related on source avoids N+1 when we resolve the existing platform below.
+        # of=('self',) is required because `source` is a nullable FK — without it
+        # PostgreSQL refuses with "FOR UPDATE cannot be applied to the nullable
+        # side of an outer join". We only want to lock HealthMetrics rows anyway,
+        # not the joined DataSource rows.
         existing_metrics = (
             HealthMetrics.objects
-            .select_for_update()
+            .select_for_update(of=('self',))
             .select_related('source')
             .filter(user=user, date=target_date)
         )
@@ -403,9 +407,13 @@ class WorkoutDetailSerializer(serializers.ModelSerializer):
         #The intersection window is checked in a single query at the database level:
         #existing.start < new.end AND existing.end > new.start
         #2. Coalesce replaces the empty end_time in old records with (date + duration).
+        # of=('self',) — `source` is a nullable FK, so select_related generates a
+        # LEFT OUTER JOIN. Without of=('self',) Postgres refuses with
+        # "FOR UPDATE cannot be applied to the nullable side of an outer join".
+        # We only need to lock Workout rows, not the joined DataSource.
         candidates = (
             Workout.objects
-            .select_for_update()
+            .select_for_update(of=('self',))
             .select_related('source')
             .filter(user=user, is_primary=True)
             .annotate(

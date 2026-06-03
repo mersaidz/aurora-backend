@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 from django.conf import settings
 from django.db import models, transaction
 from django.db.models import Q
@@ -323,7 +324,7 @@ class Workout(UserOwnedMixin):
     tss = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     training_load = models.DecimalField(
         max_digits=7, decimal_places=2, null=True, blank=True,
-        validators=[MinValueValidator(0.0)],
+        validators=[MinValueValidator(Decimal('0.0'))],
         help_text='Calculated training load (TSS/TRIMP) for AI color indicators',
     )
     training_load_calculated_at = models.DateTimeField(null=True, blank=True)
@@ -443,7 +444,7 @@ class LactateMeasurement(models.Model):
     )
     mmol = models.DecimalField(
         max_digits=4, decimal_places=2,
-        validators=[MinValueValidator(0.1), MaxValueValidator(30.0)],
+        validators=[MinValueValidator(Decimal('0.1')), MaxValueValidator(Decimal('30.0'))],
     )
 
     class Meta:
@@ -511,7 +512,7 @@ class HealthMetrics(UserOwnedMixin):
     )
     spo2_avg = models.DecimalField(
         max_digits=4, decimal_places=1, null=True, blank=True,
-        validators=[MinValueValidator(70.0), MaxValueValidator(100.0)],
+        validators=[MinValueValidator(Decimal('70.0')), MaxValueValidator(Decimal('100.0'))],
         help_text='Average blood oxygen (%)',
     )
     spo2_min = models.DecimalField(

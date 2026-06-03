@@ -39,3 +39,13 @@ def auth_client(api_client: APIClient, athlete_user: User) -> APIClient:
     refresh = RefreshToken.for_user(athlete_user)
     api_client.credentials(HTTP_AUTHORIZATION = f'Bearer {refresh.access_token}')
     return api_client
+
+@pytest.fixture
+def auth_client_factory():
+    # for IDOR / multi-user tests (user_a and user_b)
+    def _make(user) -> APIClient:
+        client = APIClient()
+        refresh = RefreshToken.for_user(user)
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
+        return client
+    return _make
