@@ -100,6 +100,7 @@ class UserSerializer(serializers.ModelSerializer):
             for attr, value in profile_data.items():
                 setattr(profile, attr, value)
             profile.save()
+            instance.profile = profile
 
         return instance
 
