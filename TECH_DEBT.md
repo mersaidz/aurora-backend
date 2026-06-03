@@ -58,3 +58,22 @@ A list of known issues and architectural shortcuts that were intentionally defer
   * Workout deduplication logic (priority checks).
   * Account deletion flow and Celery task idempotency.
   * Email masking utility on `User.__str__`.
+
+## `workouts/permissions.py` — Authorization Predicates (Designed & Tested, Pending Wiring)
+
+### Context
+I have created a centralized authorization module `workouts/permissions.py` with core safety predicates:
+* `can_view_athlete_data(viewer, athlete)` / `can_modify_athlete_data(viewer, athlete)`
+* `can_view_object(viewer, obj)` / `can_modify_object(viewer, obj)` (wrappers to extract `.user` safely).
+
+The long-term goal is to route every view, serializer, and background task through this module to handle user access.
+
+### Current Status (v1)
+* **Coverage:** 100% unit-tested via `workouts/tests/test_permissions.py`. All truth tables and the Fail-Closed security pattern are locked down.
+* **Wiring:** Temporarily bypassed in v1 code. Current views and serializers use simple, hardcoded ownership checks:
+  - Views filter data directly: `get_queryset().filter(user=self.request.user)`
+  - Serializers enforce ownership manually: `_ensure_owner()`
+* **Reason:** Keeping v1 simple for MVP launch. Implementing complex predicate wrappers right now adds unnecessary abstraction before it is actually needed.
+
+### v2 Migration Plan
+When i implement **CoachAccessGrant** (allowing coaches to view/manage athlete data), i will replace all manual `user == request.user` checks with `permissions.can_*` calls in a single refactoring pass. Since the permission rules are already fully pinned by tests, this migration will be mechanical and completely safe.
