@@ -14,6 +14,8 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.response import Response
 
 from workouts import strava as strava_oauth
+import requests
+from workouts.models import DataSource
 
 class UserPhysioProfileListCreateView(generics.ListCreateAPIView):
     """
@@ -77,21 +79,12 @@ def strava_connect(request):
     return redirect(authorization_url)
 
 
-@api_view(['GET'])
-@authentication_classes([SessionAuthentication])
 def strava_callback(request):
     """
-    Strava OAuth callback — receives the authorization code after user consent.
+    Handle Strava OAuth callback.
 
-    No permission_classes — the user is returning from Strava and proves
-    identity via session cookies established at /strava/connect/. The state
-    parameter then verifies this was the same flow we initiated.
-
-    Query params from Strava:
-    - code: the one-time authorization code
-    - state: must match the value we stored in session before redirect
-    - scope: the actual scopes user granted
-    - error: present if user denied authorization
+    Verifies the state token for CSRF protection, exchanges the auth code 
+    for tokens, and saves them to the user's DataSource.
     """
     error = request.GET.get('error')
     if error:
@@ -112,21 +105,58 @@ def strava_callback(request):
     code = request.GET.get('code')
     scope = request.GET.get('scope', '')
 
+    if not code:
+        return HttpResponse(
+            "OAuth code missing from callback — Strava sent an incomplete response.",
+            status=400,
+        )
+
+    # Exchange the one-time code for permanent (refreshable) tokens.
+    try:
+        token_data = strava_oauth.exchange_code_for_tokens(code)
+    except requests.RequestException as exc:
+        return HttpResponse(
+            f"Strava token exchange failed: {exc}",
+            status=502,
+        )
+
+    # Persist tokens to DataSource. Fernet encryption is automatic via
+    # the EncryptedTextField — neither view nor caller needs to encrypt
+    # manually. update_or_create handles both first-connect and re-connect
+    # via the (user, platform) unique constraint.
+    expires_at = strava_oauth._parse_expires_at(token_data['expires_at'])
+    athlete_id = str(token_data.get('athlete', {}).get('id', ''))
+    granted_scopes = scope.split(',') if scope else []
+
+    data_source, created = DataSource.objects.update_or_create(
+        user=request.user,
+        platform='strava',
+        defaults={
+            'access_token': token_data['access_token'],
+            'refresh_token': token_data['refresh_token'],
+            'token_expires': expires_at,
+            'provider_user_id': athlete_id,
+            'scopes': granted_scopes,
+            'is_active': True,
+        },
+    )
+
+    action = "Created" if created else "Updated"
     return HttpResponse(
-        f"Day 1 success — Strava callback received.\n"
-        f"Code (first 8 chars): {code[:8] if code else 'NONE'}...\n"
-        f"Scope: {scope}\n"
-        f"State verified: yes\n"
-        f"Next step (Day 2): exchange code for access/refresh tokens.",
+        f"Day 2 success — Strava DataSource {action.lower()}.\n"
+        f"DataSource ID: {data_source.id}\n"
+        f"Strava athlete ID: {athlete_id}\n"
+        f"Token expires at: {expires_at.isoformat()}\n"
+        f"Scopes granted: {granted_scopes}\n"
+        f"is_token_valid: {data_source.is_token_valid}\n\n"
+        f"Tokens are now encrypted in DB via Fernet. To verify:\n"
+        f"  1. Open Django admin → DataSource → your row\n"
+        f"     The access_token / refresh_token fields show CIPHERTEXT.\n"
+        f"  2. Open Django shell: python manage.py shell\n"
+        f"     ds = DataSource.objects.get(id={data_source.id})\n"
+        f"     print(ds.access_token[:20] + '...')  # plaintext via from_db_value\n\n"
+        f"Day 3: implement activity sync — fetch your workouts via Strava API.",
         content_type='text/plain',
     )
 
-    # TODO Day 2: exchange code for tokens, encrypt, save to DataSource
-    return HttpResponse(
-        f"Day 1 success — Strava callback received.\n"
-        f"Code (first 8 chars): {code[:8] if code else 'NONE'}...\n"
-        f"Scope: {scope}\n"
-        f"State verified: yes\n"
-        f"Next step (Day 2): exchange code for access/refresh tokens.",
-        content_type='text/plain',
-    )
+  
