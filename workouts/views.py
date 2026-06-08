@@ -159,4 +159,50 @@ def strava_callback(request):
         content_type='text/plain',
     )
 
+
+@login_required(login_url='/admin/login/')
+def strava_sync_view(request):
+    """
+    Trigger Strava activity sync for the current user.
+
+    Day 3 endpoint — manual sync via browser. Will be replaced later
+    by a periodic Celery task that runs every N minutes per active
+    DataSource (or webhook subscription where supported).
+
+    Returns plain-text sync stats for dev visibility. Production would
+    redirect to a frontend dashboard showing sync results visually.
+    """
+    try:
+        data_source = DataSource.objects.get(
+            user=request.user,
+            platform='strava',
+            is_active=True,
+        )
+    except DataSource.DoesNotExist:
+        return HttpResponse(
+            "No active Strava connection. Visit "
+            "/api/workouts/strava/connect/ first.",
+            status=404,
+        )
+
+    try:
+        stats = strava_oauth.sync_strava_workouts(data_source)
+    except requests.RequestException as exc:
+        return HttpResponse(
+            f"Strava API call failed: {exc}",
+            status=502,
+        )
+
+    return HttpResponse(
+        f"Strava sync complete for {request.user.email}.\n\n"
+        f"Total activities fetched: {stats['total']}\n"
+        f"New workouts created:     {stats['new']}\n"
+        f"Already synced (skipped): {stats['existing']}\n"
+        f"Errors during sync:       {stats['errors']}\n\n"
+        f"Next step: open Django shell and inspect your data:\n"
+        f"  python manage.py shell\n"
+        f"  from workouts.models import Workout\n"
+        f"  Workout.objects.filter(source__platform='strava').order_by('-date')[:5]\n",
+        content_type='text/plain',
+    )
   

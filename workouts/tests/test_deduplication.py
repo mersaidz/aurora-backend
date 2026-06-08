@@ -109,6 +109,113 @@ class TestWorkoutDeduplication:
         assert strava_workout.duplicate_of_id == garmin_workout.id
 
 
+    def test_sequential_workouts_low_overlap_are_not_deduped(
+        self, rf, athlete_user, run_sport_type, strava_source
+    ):
+        """
+        Verify that sequential same-sport workouts with trivial overlap remain distinct.
+
+        Ensures that if the overlap is below MIN_OVERLAP_RATIO (e.g., a cooldown 
+        right after a main ride), the incoming workout is correctly saved as primary 
+        instead of being falsely flagged as a duplicate.
+        """
+        base_time = timezone.now()
+
+        # Main ride: 60 minutes
+        main_ride = Workout.objects.create(
+            user=athlete_user,
+            sport_type=run_sport_type,
+            source=strava_source,
+            date=base_time,
+            end_time=base_time + timedelta(hours=1),
+            duration=timedelta(hours=1),
+            is_primary=True,
+        )
+
+        # Cooldown: 15 minutes, starts 2 minutes after main ride ended.
+        request = rf.post('/api/workouts/')
+        request.user = athlete_user
+
+        cooldown_data = {
+            'sport_type': run_sport_type.id,
+            'source': strava_source.id,
+            'date': base_time + timedelta(hours=1, minutes=2),
+            'duration': timedelta(minutes=15),
+        }
+
+        serializer = WorkoutDetailSerializer(
+            data=cooldown_data,
+            context={'request': request},
+        )
+        assert serializer.is_valid(), serializer.errors
+        cooldown = serializer.save()
+
+        main_ride.refresh_from_db()
+        cooldown.refresh_from_db()
+
+        assert main_ride.is_primary is True
+        assert main_ride.duplicate_of_id is None
+        assert cooldown.is_primary is True
+        assert cooldown.duplicate_of_id is None
+
+    def test_equal_priority_shorter_duration_wins_regardless_of_order(
+        self, rf, athlete_user, run_sport_type, strava_source
+    ):
+        """
+        Verify duration tie-break for equal-priority, overlapping activities.
+
+        Ensures the shorter, more focused workout wins as primary over a longer,
+        background tracking activity. Validates that the outcome remains identical 
+        regardless of arrival order (e.g., when the longer activity is saved first).
+        """
+        base_time = timezone.now()
+
+        # Garbage long activity arrives FIRST (worst case for first-write
+        # tie-break). 170 minutes covering a smaller real workout window.
+        garbage = Workout.objects.create(
+            user=athlete_user,
+            sport_type=run_sport_type,
+            source=strava_source,
+            date=base_time,
+            end_time=base_time + timedelta(minutes=170),
+            duration=timedelta(minutes=170),
+            is_primary=True,
+        )
+
+        # Real focused workout arrives SECOND. Shorter, fully within the
+        # garbage activity's window.
+        request = rf.post('/api/workouts/')
+        request.user = athlete_user
+
+        real_workout_data = {
+            'sport_type': run_sport_type.id,
+            'source': strava_source.id,
+            'date': base_time + timedelta(minutes=30),
+            'duration': timedelta(minutes=90),
+        }
+
+        serializer = WorkoutDetailSerializer(
+            data=real_workout_data,
+            context={'request': request},
+        )
+        assert serializer.is_valid(), serializer.errors
+        real_workout = serializer.save()
+
+        garbage.refresh_from_db()
+        real_workout.refresh_from_db()
+
+        assert real_workout.is_primary is True, (
+            "Shorter focused workout must win duration tie-break against "
+            "longer background-tracking activity."
+        )
+        assert real_workout.duplicate_of_id is None
+        assert garbage.is_primary is False, (
+            "Longer activity must be demoted when shorter overlapping "
+            "activity arrives, even if longer was created first."
+        )
+        assert garbage.duplicate_of_id == real_workout.id
+
+
 @pytest.mark.django_db
 class TestHealthMetricsDeduplication:
 
@@ -147,3 +254,65 @@ class TestHealthMetricsDeduplication:
         
         assert oura_metrics.is_primary is True
         assert garmin_metrics.is_primary is False
+
+
+    def test_brick_training_different_sports_are_not_deduped(
+        self, rf, athlete_user, garmin_source
+    ):
+        """
+        Triathlete brick training regression test.
+
+        A bike ride followed immediately by a run (within the 5-minute
+        DEDUP_BUFFER window) must NOT collapse into a single workout —
+        they are two distinct training activities.
+
+        Bug history: prior to sport_type filter in dedup service, the
+        window-overlap check would match any user's primary workout
+        within the buffer regardless of sport, causing bricks to lose
+        their run portion.
+        """
+        base_time = timezone.now()
+
+        cycling = SportType.objects.create(name="Cycling", category="cardio")
+        running = SportType.objects.create(name="Running", category="cardio")
+
+        # 1. Garmin records a 60-min bike ride
+        bike_workout = Workout.objects.create(
+            user=athlete_user,
+            sport_type=cycling,
+            source=garmin_source,
+            date=base_time,
+            duration=timedelta(hours=1),
+            is_primary=True,
+        )
+
+        # 2. Same Garmin records a 30-min run starting 2 minutes after the
+        # bike ride ended (well within DEDUP_BUFFER of 5 minutes)
+        request = rf.post('/api/workouts/')
+        request.user = athlete_user
+
+        run_data = {
+            'sport_type': running.id,
+            'source': garmin_source.id,
+            'date': base_time + timedelta(hours=1, minutes=2),
+            'duration': timedelta(minutes=30),
+        }
+
+        serializer = WorkoutDetailSerializer(
+            data=run_data,
+            context={'request': request},
+        )
+        assert serializer.is_valid(), serializer.errors
+        run_workout = serializer.save()
+
+        # Verification: BOTH workouts should be primary, neither marked as
+        # duplicate of the other — they are distinct activities.
+        bike_workout.refresh_from_db()
+        run_workout.refresh_from_db()
+
+        assert bike_workout.is_primary is True
+        assert bike_workout.duplicate_of_id is None
+        assert run_workout.is_primary is True
+        assert run_workout.duplicate_of_id is None
+        assert run_workout.sport_type_id == running.id
+        assert bike_workout.sport_type_id == cycling.id
