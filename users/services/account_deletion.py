@@ -4,7 +4,7 @@ from __future__ import annotations
 from django.db import transaction
 from django.utils import timezone
 from users.models import User
-from workouts.models import AuditLog
+from workouts.services.audit import log_event
 from workouts.tasks import delete_user_raw_payloads_in_batches
 
 
@@ -27,7 +27,7 @@ def schedule_account_deletion(
         user.is_active = False
         user.save(update_fields=['deleted_at', 'is_active'])
 
-        AuditLog.objects.create(
+        log_event(
             user=user,
             action='account_deletion_scheduled',
             ip_address=ip_address,

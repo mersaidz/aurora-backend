@@ -57,14 +57,6 @@ A curated list of architectural shortcuts, naming nits, and known gaps intention
 
 ---
 
-## Observability & Testing
-
-### Direct `AuditLog.objects.create()` calls scattered across services
-
-* **Where:** `workouts.tasks` and `users.services.account_deletion`.
-* **Problem:** Writing audit logs via direct `AuditLog.objects.create()` calls scatters concerns — every call site has to remember to extract IP / User-Agent from the request, pass `extra_info` through `sanitize_payload`, set snapshot fields. Repetitive and easy to forget.
-* **Todo:** Create an `audit.py` helper module with a single `log_event(request, action, ...)` entry point that automatically extracts request metadata, sanitizes payloads, and writes the audit row. Replaces all current direct call sites.
-
 ### Email masking utility not directly tested
 
 * **Where:** `users.models.User.__str__` — masks the email local part (e.g., `john@example.com` → `jo***@example.com`) for safe logging.
@@ -105,3 +97,14 @@ The long-term goal is to route every view, serializer, and background task throu
 ### v2 Migration Plan
 
 When `CoachAccessGrant` (allowing coaches to view/manage athlete data) lands, I will replace all manual `user == request.user` checks with `permissions.can_*` calls in a single refactoring pass. Since the permission rules are already fully pinned by tests, this migration will be mechanical and completely safe.
+
+## Workout deletion — SET_NULL vs CheckConstraint conflict
+
+* **Where:** `workouts/models.py` Workout.duplicate_of + workout_primary_state_consistent constraint
+* **Problem:** When a primary Workout is deleted, `ON DELETE SET_NULL` sets dependent duplicates' `duplicate_of` to NULL. This leaves the duplicate in `is_primary=False, duplicate_of=NULL` state, which violates the `workout_primary_state_consistent` CheckConstraint.
+* **Workaround:** Delete duplicates BEFORE deleting their primary (manual two-step deletion).
+* **Todo:** Options to investigate:
+  1. Change `on_delete=SET_NULL` to `on_delete=CASCADE` — automatic cleanup of duplicates when primary deleted. Risk: surprising behavior, loses duplicate audit trail.
+  2. Add pre_delete signal that promotes duplicates to primary (is_primary=True, duplicate_of=NULL) when their primary is deleted. Preserves audit but creates orphans.
+  3. Add custom Workout.delete() that handles the order automatically.
+* **Trigger:** Address when adding admin actions for sync-replay or test-data-reset workflows.

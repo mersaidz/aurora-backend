@@ -23,7 +23,7 @@ import logging
 
 from celery import shared_task
 from django.contrib.auth import get_user_model
-
+from workouts.services.audit import log_event
 from .models import WorkoutRawPayload, AuditLog
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ def delete_user_raw_payloads_in_batches(self, user_id, batch_size=PAYLOAD_BATCH_
     user = User.objects.filter(pk=user_id).first()
 
     if user is not None:
-        AuditLog.objects.create(
+        log_event(
             user=user,
             action='account_deletion_completed',
             extra_info={"status": "raw_payloads_drained_user_purged"},
@@ -80,7 +80,7 @@ def delete_user_raw_payloads_in_batches(self, user_id, batch_size=PAYLOAD_BATCH_
         # Those tables are bounded per user and small relative to raw payloads.
         user.delete()
     else:
-        AuditLog.objects.create(
+        log_event(
             user_id_snapshot=user_id,
             action='account_deletion_completed',
             extra_info={"status": "user_row_missing_payloads_drained"},
