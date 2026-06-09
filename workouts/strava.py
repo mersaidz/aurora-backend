@@ -254,36 +254,15 @@ def fetch_strava_activities(data_source, per_page: int = 30, page: int = 1) -> l
     response.raise_for_status()
     return response.json()
 
+
 def normalize_strava_activity(activity: dict, user, sport_type, source) -> dict:
     """
-    Convert a Strava activity dict into kwargs for Workout.objects.create().
-
-    Strava sends units that need conversion to Aurora's storage format:
-    - distance: meters → kilometers (Decimal)
-    - speed: m/s → km/h (Decimal)
-    - elevation, calories, heart rate, watts, cadence: already in our units
-
-    The 'start_date' field is UTC ISO 8601 with 'Z' suffix — we convert to
-    Python timezone-aware datetime so Django's USE_TZ=True ORM handles it.
-
-    Returns a dict of Workout fields ready to splat into create() kwargs.
-    Optional metrics (avg_hr, calories, distance, etc.) are only included
-    when Strava sent a value — we use 'is not None' checks so legitimate
-    zero values (e.g., 0 elevation gain on a track session) aren't filtered
-    out as missing data.
+    Convert a Strava activity dict (summary or detail) into Workout kwargs.
     """
     start = datetime.fromisoformat(activity['start_date'].replace('Z', '+00:00'))
     elapsed_seconds = activity.get('elapsed_time', 0)
     moving_seconds = activity.get('moving_time', 0)
 
-    # elapsed_time vs moving_time — important distinction for endurance sports:
-    # - elapsed_time = total wall-clock time (includes coffee stops, traffic
-    #   lights, fix-a-flat pauses)
-    # - moving_time = actual time you were training
-    # We store moving_time as duration (drives training-load calculations)
-    # and use elapsed_time for end_time (drives dedup window overlap checks
-    # — if two devices recorded the same ride, their elapsed windows overlap
-    # even with brief pauses).
     end_time = start + timedelta(seconds=elapsed_seconds)
     duration = timedelta(seconds=moving_seconds or elapsed_seconds)
 
@@ -295,24 +274,17 @@ def normalize_strava_activity(activity: dict, user, sport_type, source) -> dict:
         'date': start,
         'end_time': end_time,
         'duration': duration,
-        'verification_level': 'raw',  # provider data, not coach-verified
+        'verification_level': 'raw',
     }
 
-    # Optional numeric metrics — only set if Strava sent a value.
-    # 'is not None' (rather than truthy check) correctly preserves
-    # legitimate zero values vs treating them as missing fields.
+    # Heart rate metrics
     if activity.get('average_heartrate') is not None:
         workout_data['avg_hr'] = int(activity['average_heartrate'])
     if activity.get('max_heartrate') is not None:
         workout_data['max_hr'] = int(activity['max_heartrate'])
-    if activity.get('calories') is not None:
-        workout_data['calories'] = int(activity['calories'])
 
+    # Distance: meters -> kilometers
     if activity.get('distance'):
-        # Strava distance in meters; we store kilometers as Decimal(maxd=10, dp=2).
-        # Decimal(str(value)) avoids float→Decimal representation artifacts
-        # (e.g., Decimal(0.1) ≠ Decimal('0.1')); quantize ensures we match
-        # the 2-decimal-places schema definition.
         workout_data['distance'] = (
             Decimal(str(activity['distance'])) / Decimal('1000')
         ).quantize(Decimal('0.01'))
@@ -320,16 +292,40 @@ def normalize_strava_activity(activity: dict, user, sport_type, source) -> dict:
     if activity.get('total_elevation_gain') is not None:
         workout_data['elevation_gain'] = int(activity['total_elevation_gain'])
 
+    # Speed: m/s -> km/h
     if activity.get('average_speed'):
-        # Strava speed in m/s; we store km/h as Decimal(maxd=5, dp=2).
         workout_data['avg_speed'] = (
             Decimal(str(activity['average_speed'])) * Decimal('3.6')
         ).quantize(Decimal('0.01'))
 
+    # Power & Cadence
     if activity.get('average_watts') is not None:
         workout_data['avg_power'] = int(activity['average_watts'])
     if activity.get('average_cadence') is not None:
         workout_data['avg_cadence'] = int(activity['average_cadence'])
+
+    # Detail payload fields
+    if activity.get('calories') is not None:
+        workout_data['calories'] = int(activity['calories'])
+
+    # RPE: clamp to 1-10 range
+    if activity.get('perceived_exertion') is not None:
+        rpe_raw = int(round(float(activity['perceived_exertion'])))
+        workout_data['rpe'] = max(1, min(10, rpe_raw))
+
+    # Optional metadata for future analysis (e.g., brand-aware tie-breaks)
+    additional = {}
+    if activity.get('device_name'):
+        additional['strava_device_name'] = activity['device_name']
+    if activity.get('kilojoules') is not None:
+        additional['strava_kilojoules'] = activity['kilojoules']
+    if activity.get('average_temp') is not None:
+        additional['strava_avg_temp_celsius'] = activity['average_temp']
+    if activity.get('weighted_average_watts') is not None:
+        additional['strava_weighted_avg_watts'] = activity['weighted_average_watts']
+
+    if additional:
+        workout_data['additional_metrics'] = additional
 
     return workout_data
 
@@ -384,10 +380,16 @@ def sync_strava_workouts(data_source, max_activities: int = 30) -> dict:
                 },
             )
 
-            # Normalize Strava JSON to Workout field kwargs.
-            sport_type = get_or_create_sport_type(activity.get('type', 'Workout'))
+           # Try fetching full activity details; fallback to summary if API call fails
+            try:
+                detail = fetch_strava_activity_detail(data_source, external_id)
+            except requests.RequestException:
+                detail = activity
+
+            # Normalize activity with preferred detail payload or summary fallback
+            sport_type = get_or_create_sport_type(detail.get('type', 'Workout'))
             workout_kwargs = normalize_strava_activity(
-                activity,
+                detail,
                 user=data_source.user,
                 sport_type=sport_type,
                 source=data_source,
@@ -417,3 +419,23 @@ def sync_strava_workouts(data_source, max_activities: int = 30) -> dict:
             stats['errors'] += 1
 
     return stats
+
+def fetch_strava_activity_detail(data_source, activity_id) -> dict:
+    """
+    Fetch full detail for a single Strava activity via GET /activities/{id}.
+    
+    Used to retrieve fields omitted in summary listings, such as device_name,
+    calories, hr zones, and average watts and etc.
+    """
+    if not data_source.is_token_valid:
+        refresh_strava_token(data_source)
+
+    response = requests.get(
+        f"{STRAVA_API_BASE}/activities/{activity_id}",
+        headers={'Authorization': f'Bearer {data_source.access_token}'},
+        timeout=15,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
