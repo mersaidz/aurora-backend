@@ -12,56 +12,14 @@ from .models import (
     HealthMetrics,
     LactateMeasurement,
 )
-
-
-
-# Module-level constants — single source of truth for dedup logic.
-
-
-# How close in time two workouts can be before we treat them as the same activity.
-# 5 minutes covers clock drift between devices and "save now vs save 3 sec later" UX.
-DEDUP_BUFFER = timedelta(minutes=5)
-
-# Source authority for health/sleep/HRV data. Higher = more trusted.
-# Oura / Whoop are dedicated wearables tuned for sleep; Garmin/Polar are workout-first.
-HEALTH_SOURCE_PRIORITY = {
-    'oura':         100,
-    'whoop':         90,
-    'apple_health':  80,
-    'google_fit':    70,
-    'garmin':        50,
-    'polar':         40,
-    'manual':        10,
-}
-
-# Same thing for workout but prioritizing most popular one - Garmin
-
-WORKOUT_SOURCE_PRIORITY = {
-    'garmin':        100,
-    'polar':          95,
-    'wahoo':          85,
-    'strava':         70,
-    'apple_health':   60,
-    'google_fit':     55,
-    'whoop':          30,
-    'oura':           25,
-    'manual':         10,
-}
-
-
-def _resolve_health_platform(source, source_label: str = '') -> str:
-   # looking for source of truth(proirity) for HM
-    if source is not None:
-        return source.platform
-    if source_label and source_label in HEALTH_SOURCE_PRIORITY:
-        return source_label
-    return 'manual'
-
-
-def _resolve_workout_platform(source) -> str:
-    # Workout-side platform helper — Workout has no source_label field, so just source
-    # maybe add later? (need to test)
-    return source.platform if source is not None else 'manual'
+from workouts.services.dedup import (
+    DEDUP_BUFFER,
+    HEALTH_SOURCE_PRIORITY,
+    WORKOUT_SOURCE_PRIORITY,
+    _resolve_health_platform,
+    _resolve_workout_platform,
+    create_workout_with_dedup,
+)
 
 
 # Short serializers — for nesting / list views. All read-only.
@@ -386,75 +344,13 @@ class WorkoutDetailSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
-       # Dedup workouts(+-5min):
-       #DB empty -> workout is primary
-       # already have one? wins with highest priority other going to dup
-       # race in same sec on empty DB catching in Postgres with UniqueConstraint(IntegrityError)
-
+        """
+        Delegate to the shared dedup engine. All workout-creation paths
+        (HTTP, sync, manual) go through the same logic to ensure consistent
+        deduplication behavior.
+        """
         user = self.context['request'].user
-        validated_data['user'] = user
-
-        start_time = validated_data['date']
-        duration = validated_data['duration']
-        new_end = (validated_data.get('end_time') or (start_time + duration))
-        validated_data['end_time'] = new_end
-
-        # Buffered window for "close enough to be the same activity".
-        window_start = start_time - DEDUP_BUFFER
-        window_end = new_end + DEDUP_BUFFER
-
-      
-        #The intersection window is checked in a single query at the database level:
-        #existing.start < new.end AND existing.end > new.start
-        #2. Coalesce replaces the empty end_time in old records with (date + duration).
-        # of=('self',) — `source` is a nullable FK, so select_related generates a
-        # LEFT OUTER JOIN. Without of=('self',) Postgres refuses with
-        # "FOR UPDATE cannot be applied to the nullable side of an outer join".
-        # We only need to lock Workout rows, not the joined DataSource.
-        candidates = (
-            Workout.objects
-            .select_for_update(of=('self',))
-            .select_related('source')
-            .filter(user=user, is_primary=True)
-            .annotate(
-                effective_end=Coalesce(
-                    'end_time',
-                    ExpressionWrapper(
-                        F('date') + F('duration'),
-                        output_field=DateTimeField(),
-                    ),
-                )
-            )
-            .filter(date__lt=window_end, effective_end__gt=window_start)
-        )
-
-        existing_primary = candidates.first()
-        current_platform = _resolve_workout_platform(validated_data.get('source'))
-        current_priority = WORKOUT_SOURCE_PRIORITY.get(current_platform, 0)
-
-        if existing_primary is None:
-            # No conflict — save as primary.
-            validated_data['is_primary'] = True
-            return super().create(validated_data)
-
-        existing_platform = _resolve_workout_platform(existing_primary.source)
-        existing_priority = WORKOUT_SOURCE_PRIORITY.get(existing_platform, 0)
-
-        if current_priority > existing_priority:
-            # New source wins — save new as primary first, then demote and link existing.
-            # Order matters: we need the new workout's pk to set duplicate_of on the old one.
-            validated_data['is_primary'] = True
-            new_workout = super().create(validated_data)
-            existing_primary.is_primary = False
-            existing_primary.duplicate_of = new_workout
-            existing_primary.save(update_fields=['is_primary', 'duplicate_of'])
-            return new_workout
-
-        # Existing wins (equal priority defaults to existing — first-write-wins).
-        # New record is saved as non-primary and linked to surviving primary.
-        validated_data['is_primary'] = False
-        validated_data['duplicate_of'] = existing_primary
-        return super().create(validated_data)
+        return create_workout_with_dedup(user, **validated_data)
 
     @transaction.atomic
     def update(self, instance, validated_data):
