@@ -1,5 +1,4 @@
 from rest_framework import generics
-from rest_framework.permissions import IsAuthenticated
 
 from .models import UserPhysioProfile
 from .serializers import UserPhysioProfileSerializer
@@ -16,6 +15,13 @@ from rest_framework.response import Response
 from workouts import strava as strava_oauth
 import requests
 from workouts.models import DataSource
+from workouts.whoop import (
+    generate_state_token,
+    build_authorization_url,
+    exchange_code_for_token,
+)
+from datetime import timedelta
+from django.utils import timezone
 
 class UserPhysioProfileListCreateView(generics.ListCreateAPIView):
     """
@@ -206,3 +212,80 @@ def strava_sync_view(request):
         content_type='text/plain',
     )
   
+
+
+#Whoopie
+@login_required
+def whoop_connect(request):
+    state = generate_state_token()
+    request.session['whoop_oauth_state'] = state
+    auth_url = build_authorization_url(state)
+    return redirect(auth_url)
+
+def whoop_callback(request):
+    error = request.GET.get('error')
+    if error:
+        return HttpResponse(
+            f"Whoop authorization denied: {error}",
+            status=400,
+        )
+
+    state_received = request.GET.get('state', '')
+    state_expected = request.session.pop('whoop_oauth_state', None)
+    if not state_expected or state_received != state_expected:
+        return HttpResponse(
+            "OAuth state mismatch — possible CSRF attempt. "
+            "Please restart the connect flow.",
+            status=400,
+        )
+
+    code = request.GET.get('code')
+    if not code:
+        return HttpResponse(
+            "OAuth code missing from callback — Whoop sent an incomplete response.",
+            status=400,
+        )
+
+    # Exchange the one-time code for permanent (refreshable) tokens.
+    try:
+        token_data = exchange_code_for_token(code)
+    except requests.RequestException as exc:
+        return HttpResponse(
+            f"Whoop token exchange failed: {exc}",
+            status=502,
+        )
+
+    
+
+    # Whoop returns 'expires_in' (seconds from now), unlike Strava's 'expires_at'.
+    expires_at = timezone.now() + timedelta(seconds=token_data['expires_in'])
+    granted_scopes = (
+        token_data.get('scope', '').split(' ')
+        if token_data.get('scope')
+        else []
+    )
+
+    data_source, created = DataSource.objects.update_or_create(
+        user=request.user,
+        platform='whoop',
+        defaults={
+            'access_token': token_data['access_token'],
+            'refresh_token': token_data.get('refresh_token', ''),
+            'token_expires': expires_at,
+            'provider_user_id': '',
+            'scopes': granted_scopes,
+            'is_active': True,
+        },
+    )
+
+    action = "Created" if created else "Updated"
+    return HttpResponse(
+        f"Whoop OAuth success — DataSource {action.lower()}.\n"
+        f"DataSource ID: {data_source.id}\n"
+        f"Token expires at: {expires_at.isoformat()}\n"
+        f"Scopes granted: {granted_scopes}\n"
+        f"is_token_valid: {data_source.is_token_valid}\n\n"
+        f"Tokens encrypted in DB via Fernet (EncryptedTextField).\n"
+        f"Next: implement sync — workouts + recovery + sleep endpoints.",
+        content_type='text/plain',
+    )

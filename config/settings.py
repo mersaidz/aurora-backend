@@ -77,6 +77,14 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
+# Whoop OAuth credentials
+WHOOP_CLIENT_ID = os.getenv('WHOOP_CLIENT_ID', '')
+WHOOP_CLIENT_SECRET = os.getenv('WHOOP_CLIENT_SECRET', '')
+WHOOP_REDIRECT_URI = os.getenv(
+    'WHOOP_REDIRECT_URI',
+    'http://localhost:8000/whoop/callback/',
+)
+
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases

@@ -108,3 +108,19 @@ When `CoachAccessGrant` (allowing coaches to view/manage athlete data) lands, I 
   2. Add pre_delete signal that promotes duplicates to primary (is_primary=True, duplicate_of=NULL) when their primary is deleted. Preserves audit but creates orphans.
   3. Add custom Workout.delete() that handles the order automatically.
 * **Trigger:** Address when adding admin actions for sync-replay or test-data-reset workflows.
+
+## Technical Debt: Whoop Manual Re-Auth Every Hour
+
+### Problem
+* The Whoop API does not return a `refresh_token` with the default scopes.
+* Adding the `offline` scope causes an `invalid_scope` error because Whoop's Ory Hydra system rejects it.
+* As a result, the `access_token` expires in 1 hour, and the user must manually re-authenticate via `/whoop/connect/`.
+
+### Production Requirements (To Fix Later)
+* Check the Whoop developer dashboard settings for refresh tokens.
+* Try using a `Basic Auth` header instead of sending credentials in the request body.
+* Contact Whoop developer support if the issue continues.
+
+### Trade-off
+* Live with a 1-hour manual auth limit for now vs. blocking the feature.
+* **Decision:** Ship now, refactor later.
