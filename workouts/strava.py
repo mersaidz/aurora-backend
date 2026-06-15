@@ -6,15 +6,19 @@ via the EncryptedTextField (Fernet) I built earlier.
 
 from __future__ import annotations
 
-import os
 import secrets
+import logging
 from urllib.parse import urlencode
-import requests 
-from datetime import datetime, timezone as dt_timezone 
+import requests
+from datetime import datetime, timezone as dt_timezone, timedelta
 from decimal import Decimal
-from datetime import timedelta
 import hashlib
 import json as json_lib
+
+from django.conf import settings
+from django.db import IntegrityError
+
+logger = logging.getLogger(__name__)
 
 
 # Strava OAuth endpoints (constants — won't change for a long time)
@@ -22,32 +26,24 @@ STRAVA_AUTH_URL = 'https://www.strava.com/oauth/authorize'
 STRAVA_TOKEN_URL = 'https://www.strava.com/oauth/token'
 STRAVA_API_BASE = 'https://www.strava.com/api/v3'
 
-# Scope = what permissions we ask the user for
-# - read: basic profile info
-# - activity:read_all: read all activities, including private ones
-# This is the minimum for Aurora's sync flow.
 STRAVA_SCOPE = 'read,activity:read_all'
 
 
 def _get_client_id() -> str:
-    """Read Strava client ID from env. Fails loud if missing."""
-    client_id = os.getenv('STRAVA_CLIENT_ID')
-    if not client_id:
+    if not settings.STRAVA_CLIENT_ID:
         raise RuntimeError(
             "STRAVA_CLIENT_ID is not set. Configure it in .env "
             "or via Strava developer settings."
         )
-    return client_id
+    return settings.STRAVA_CLIENT_ID
 
 
 def _get_redirect_uri() -> str:
-    """Read OAuth redirect URI from env. Fails loud if missing."""
-    redirect_uri = os.getenv('STRAVA_REDIRECT_URI')
-    if not redirect_uri:
+    if not settings.STRAVA_REDIRECT_URI:
         raise RuntimeError(
             "STRAVA_REDIRECT_URI is not set. Configure it in .env."
         )
-    return redirect_uri
+    return settings.STRAVA_REDIRECT_URI
 
 
 def generate_state_token() -> str:
@@ -75,12 +71,11 @@ def build_authorization_url(state: str) -> str:
 
 
 def _get_client_secret() -> str:
-    client_secret = os.getenv('STRAVA_CLIENT_SECRET')
-    if not client_secret:
+    if not settings.STRAVA_CLIENT_SECRET:
         raise RuntimeError(
             "STRAVA_CLIENT_SECRET is not set. Configure it in .env."
         )
-    return client_secret
+    return settings.STRAVA_CLIENT_SECRET
 
 
 def _parse_expires_at(unix_timestamp: int) -> datetime:
@@ -94,15 +89,6 @@ def _parse_expires_at(unix_timestamp: int) -> datetime:
 
 
 def exchange_code_for_tokens(code: str) -> dict:
-    """
-    Exchange a one-time Strava auth code for tokens.
-
-    Args:
-    code (str): Single-use code from Strava callback redirect.
-
-    Returns:
-    dict: Parsed JSON with tokens, expires_at, and athlete profile info.
-    """
     response = requests.post(
         STRAVA_TOKEN_URL,
         data={
@@ -124,11 +110,6 @@ def refresh_strava_token(data_source) -> dict:
     Strava rotates refresh tokens — every refresh returns a NEW refresh token
     that replaces the old one. So we must persist both. (This rotation is a
     security feature against stolen-token replay.)
-
-    Updates the DataSource in-place via save(), which triggers Fernet
-    re-encryption of the token fields automatically.
-
-    Returns the parsed response dict (mostly for logging/audit purposes).
     """
     response = requests.post(
         STRAVA_TOKEN_URL,
@@ -150,19 +131,12 @@ def refresh_strava_token(data_source) -> dict:
 
     return payload
 
-# ---------------------------------------------------------------------------
+
 # Strava activity type → Aurora SportType mapping.
-#
-# Categorization principle:
-# - 'cardio' = sport trained as sustained endurance (HR/lactate/power zones,
-#   periodization cycles): cycling, running, swimming, rowing, nordic skiing.
-# - 'specific' = sport-specific or recreational with variable intensity and
-#   technique focus: skating, alpine ski, MTB, trail running, team sports.
-# - 'strength' / 'flexibility' = self-explanatory.
-#
+
 # Fallback for unknown Strava types: store as-is with category='cardio'
 # (most Strava activities not in this list are cardio-adjacent).
-# ---------------------------------------------------------------------------
+
 STRAVA_SPORT_MAP = {
     # Cycling (endurance discipline; MTB is specific due to technique)
     'Ride': ('Cycling', 'cardio'),
@@ -207,13 +181,7 @@ STRAVA_SPORT_MAP = {
 
 
 def get_or_create_sport_type(strava_type: str):
-    """
-    Return an Aurora SportType for a Strava activity type.
-
-    Falls back to (strava_type as-is, 'cardio') for unknown types — most
-    Strava activities not in our map are cardio-adjacent, and admin can
-    rename / recategorize later via Django admin.
-    """
+    # Return an Aurora SportType for a Strava activity type.
     from workouts.models import SportType
 
     name, category = STRAVA_SPORT_MAP.get(strava_type, (strava_type, 'cardio'))
@@ -225,19 +193,6 @@ def get_or_create_sport_type(strava_type: str):
 
 
 def fetch_strava_activities(data_source, per_page: int = 30, page: int = 1) -> list:
-    """
-    Fetch one page of athlete's activities from the Strava API.
-
-    Auto-refreshes the access token if it has expired (or is within the
-    60-second skew buffer of expiry — see DataSource.is_token_valid).
-
-    Strava paginates with per_page (max 200) and page (1-indexed). The
-    caller handles multi-page sync logic.
-
-    Returns: list of activity dicts (empty list when no more activities).
-    Raises: requests.HTTPError on Strava API errors (caller decides
-        whether to retry, surface, or skip).
-    """
     # Proactive token refresh — better than handling 401s in every API call
     # site. is_token_valid already includes a 60-second skew buffer to avoid
     # the race where a token is "valid" at check time but expires before
@@ -256,9 +211,6 @@ def fetch_strava_activities(data_source, per_page: int = 30, page: int = 1) -> l
 
 
 def normalize_strava_activity(activity: dict, user, sport_type, source) -> dict:
-    """
-    Convert a Strava activity dict (summary or detail) into Workout kwargs.
-    """
     start = datetime.fromisoformat(activity['start_date'].replace('Z', '+00:00'))
     elapsed_seconds = activity.get('elapsed_time', 0)
     moving_seconds = activity.get('moving_time', 0)
@@ -332,15 +284,6 @@ def normalize_strava_activity(activity: dict, user, sport_type, source) -> dict:
 
 
 def sync_strava_workouts(data_source, max_activities: int = 30) -> dict:
-    """
-    Sync recent Strava activities into Aurora.
-
-    Fetches workouts, ensures idempotency via external_id, normalizes data, 
-    and runs them through the dedup engine to resolve cross-provider conflicts.
-
-    Returns:
-    dict: Sync statistics containing 'total', 'new', 'existing', and 'errors' counts.
-    """
     from workouts.models import Workout, WorkoutRawPayload
     from workouts.services.dedup import create_workout_with_dedup
 
@@ -409,24 +352,21 @@ def sync_strava_workouts(data_source, max_activities: int = 30) -> dict:
             raw.save(update_fields=['workout'])
 
             stats['new'] += 1
+        except IntegrityError:
+            # Race condition: concurrent sync inserted this activity between
+            # our exists() check and create. DB correctly rejected duplicate.
+            # See TECH_DEBT for proper fix (DB-level sync lock).
+            stats['existing'] += 1
         except Exception:
             # Per-activity isolation: one bad activity doesn't kill the
-            # whole sync. Log traceback to console for dev visibility.
-            # Production: replace with logger.exception() + AuditLog
-            # write (action='sync_failed') once audit helper module ships.
-            import traceback
-            traceback.print_exc()
+            # whole sync. logger.exception captures the full traceback for
+            # production observability (vs print to stdout).
+            logger.exception("Strava workout sync failed for activity")
             stats['errors'] += 1
 
     return stats
 
 def fetch_strava_activity_detail(data_source, activity_id) -> dict:
-    """
-    Fetch full detail for a single Strava activity via GET /activities/{id}.
-    
-    Used to retrieve fields omitted in summary listings, such as device_name,
-    calories, hr zones, and average watts and etc.
-    """
     if not data_source.is_token_valid:
         refresh_strava_token(data_source)
 

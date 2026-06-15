@@ -8,6 +8,7 @@ from .views import (
     strava_sync_view,
     whoop_connect,
     whoop_callback,
+    whoop_sync_view,
 )
 
 app_name = 'workouts'
@@ -22,4 +23,5 @@ urlpatterns = [
 
     path('whoop/connect/', whoop_connect, name='whoop-connect'),
     path('whoop/callback/', whoop_callback, name='whoop-callback'),
+    path('whoop/sync/', whoop_sync_view, name='whoop-sync'),
 ]

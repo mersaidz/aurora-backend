@@ -5,6 +5,7 @@ from .serializers import UserPhysioProfileSerializer
 
 from django.shortcuts import redirect
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.http import HttpResponse
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated
@@ -19,6 +20,7 @@ from workouts.whoop import (
     generate_state_token,
     build_authorization_url,
     exchange_code_for_token,
+    sync_whoop_data,
 )
 from datetime import timedelta
 from django.utils import timezone
@@ -85,6 +87,8 @@ def strava_connect(request):
     return redirect(authorization_url)
 
 
+@login_required
+@transaction.atomic
 def strava_callback(request):
     """
     Handle Strava OAuth callback.
@@ -222,6 +226,8 @@ def whoop_connect(request):
     auth_url = build_authorization_url(state)
     return redirect(auth_url)
 
+@login_required
+@transaction.atomic
 def whoop_callback(request):
     error = request.GET.get('error')
     if error:
@@ -287,5 +293,62 @@ def whoop_callback(request):
         f"is_token_valid: {data_source.is_token_valid}\n\n"
         f"Tokens encrypted in DB via Fernet (EncryptedTextField).\n"
         f"Next: implement sync — workouts + recovery + sleep endpoints.",
+        content_type='text/plain',
+    )
+
+@login_required
+def whoop_sync_view(request):
+    """
+    Trigger Whoop data sync for the authenticated user.
+
+    Default range: last 7 days. Future: accept ?days=N or
+    ?start=&end= query params for custom date ranges.
+    """
+    try:
+        data_source = DataSource.objects.get(
+            user=request.user,
+            platform='whoop',
+        )
+    except DataSource.DoesNotExist:
+        return HttpResponse(
+            "No Whoop integration. Visit /api/workouts/whoop/connect/ first.",
+            status=400,
+        )
+
+    if not data_source.is_active:
+        return HttpResponse(
+            "Whoop integration is inactive. "
+            "Re-authorize via /api/workouts/whoop/connect/",
+            status=400,
+        )
+
+    # Default sync window: last 7 days
+    end = timezone.now()
+    start = end - timedelta(days=7)
+
+    try:
+        stats = sync_whoop_data(data_source, start, end)
+    except RuntimeError as exc:
+        # Token expired and Whoop offers no refresh in our dev app —
+        # surface re-auth requirement to user.
+        return HttpResponse(
+            f"Whoop sync requires re-authorization: {exc}",
+            status=401,
+        )
+
+    w = stats['workouts']
+    r = stats['recovery']
+    s = stats['sleep']
+    h = stats['health_metrics']
+
+    return HttpResponse(
+        f"Whoop sync complete ({start.date()} → {end.date()}):\n"
+        f"\n"
+        f"  Workouts: {w['new']} new, {w['existing']} existing, {w['errors']} errors\n"
+        f"  Recovery: {r['fetched']} fetched, {r['errors']} errors\n"
+        f"  Sleep:    {s['fetched']} fetched, {s['naps_skipped']} naps skipped, {s['errors']} errors\n"
+        f"  HealthMetrics: {h['created']} created, {h['updated']} updated, {h['errors']} errors\n"
+        f"\n"
+        f"View synced data via Django admin → Workouts / HealthMetrics.\n",
         content_type='text/plain',
     )

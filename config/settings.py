@@ -77,6 +77,11 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
+# Strava OAuth credentials
+STRAVA_CLIENT_ID = os.getenv('STRAVA_CLIENT_ID', '')
+STRAVA_CLIENT_SECRET = os.getenv('STRAVA_CLIENT_SECRET', '')
+STRAVA_REDIRECT_URI = os.getenv('STRAVA_REDIRECT_URI', '')
+
 # Whoop OAuth credentials
 WHOOP_CLIENT_ID = os.getenv('WHOOP_CLIENT_ID', '')
 WHOOP_CLIENT_SECRET = os.getenv('WHOOP_CLIENT_SECRET', '')

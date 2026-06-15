@@ -13,11 +13,8 @@ from .models import (
     LactateMeasurement,
 )
 from workouts.services.dedup import (
-    DEDUP_BUFFER,
     HEALTH_SOURCE_PRIORITY,
-    WORKOUT_SOURCE_PRIORITY,
     _resolve_health_platform,
-    _resolve_workout_platform,
     create_workout_with_dedup,
 )
 

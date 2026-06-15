@@ -25,11 +25,6 @@ from django.db.models import F, ExpressionWrapper, DateTimeField
 from django.db.models.functions import Coalesce
 
 
-# Legacy time-buffer constant — no longer used by workout dedup logic.
-# Kept for HealthMetricsSerializer backward compatibility, will be removed
-# when health-metrics dedup is also extracted to this service.
-DEDUP_BUFFER = timedelta(minutes=5)
-
 
 # Minimum overlap ratio for two activities to be considered duplicates.
 # Computed as: overlap_duration / max(activity_a.duration, activity_b.duration).
