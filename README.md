@@ -3,8 +3,8 @@
 A multi-source athletic data hub with provider-aware deduplication and lactate-driven training analysis.
 
 ![Status](https://img.shields.io/badge/status-v1%20backend-blue)
-![Tests](https://img.shields.io/badge/tests-58%20passing-green)
-![Coverage](https://img.shields.io/badge/coverage-88%25-brightgreen)
+![Tests](https://img.shields.io/badge/tests-80%20passing-green)
+![Coverage](https://img.shields.io/badge/coverage-75%25%20overall%20%7C%2088%25%20dedup-brightgreen)
 ![Python](https://img.shields.io/badge/python-3.14-blue)
 ![Django](https://img.shields.io/badge/django-6.0-darkgreen)
 
@@ -12,7 +12,7 @@ A multi-source athletic data hub with provider-aware deduplication and lactate-d
 
 ## Why Aurora exists
 
-I've spent fifteen years on Kazakhstan's national short-track speed skating team, which means I've spent fifteen years using every fitness platform on the market. Whoop, Garmin, Polar, Strava, Apple Health, GymAware right now. Oura, Elite HRV, TrainingPeaks, FirstBeat Sport, Zones before that. Every one of them sees a slice of my training and recovery. None of them sees the whole picture, and most of them lie to me in interesting ways.
+I've spent fifteen years on Kazakhstan's national short-track speed skating team, which means I've spent fifteen years using every fitness platform on the market. Whoop, Garmin, Polar, Strava, Apple Health, GymAware right now. Oura, Elite HRV, TrainingPeaks, FirstBeat Sport, Zones before that. Every one of them sees a slice of my training and recovery. None of them sees the whole picture, and most of them is so uncorrect.
 
 Four pain points I've lived with:
 
@@ -24,29 +24,44 @@ Four pain points I've lived with:
 
 **AI advice without context is noise.** Generic "based on your last week" recommendations ignore the most important variable in periodized training: which phase the athlete is in. A 5-hour zone-2 ride in a base block means "good base work." The same ride in a taper week before a championship means "you just blew the race." Zero consumer platforms know the difference — and throwing a more expensive AI model at the same bad inputs doesn't fix this; it just hallucinates with more confidence.
 
-Aurora is the backend I wish existed when I was using all of these.
+Aurora is the backend I always wanted to exist for my health and fitness daily grind.
 
 ---
 
 ## Vision
 
-Aurora is positioned as a three-tier product. Each tier targets a distinct user archetype I've watched up close — the health-conscious tracker, the self-coached athlete, and the coach-led team.
+Aurora is architected as a three-tier product, strategically designed to scale and cover the entire global fitness market—from casual trackers to professional sports organizations.
 
-| Tier | For whom | What it adds |
+| Tier | Target Audience | Core Capabilities & Business Logic |
 |---|---|---|
-| **Aurora** *(free, forever)* | Health-conscious users tracking daily wellness across multiple devices | Foundation: unified view of sleep, recovery, HR, and workouts. Provider-priority dedup decides which source wins for each metric. |
-| **Aurora Plus** *(low-cost monthly subscription)* | Self-coached semi-pro athletes — marathoners, triathletes, amateur cyclists, serious gym lifters | + AI training analysis<br>+ Extra physiological metrics<br>+ Athlete-managed training-phase tagging<br>+ **Lactate tracking** (log lactate alongside workouts; reclassify intensity by lactate rather than HR alone)<br>+ Manual strength-training log (exercise, weight, reps, RPE) |
-| **Aurora Pro** *(premium subscription for coaches and teams)* | Coaches managing groups of athletes — pro clubs, national teams, masters programs | + **Coach ↔ Athlete dashboard** with a **traffic-light state engine** (red = overload risk, yellow = caution, green = ready to go)<br>+ Coach-managed periodization for the whole team<br>+ Group-level views and notifications<br>+ **GymAware integration** with team-account-to-athlete mapping for velocity-based strength data |
+| **Aurora Free** *(Free forever)* | General public, fitness fans, and anyone tracking basic health/wellness across multiple wearables. | **The Foundation:** Unified dashboard for sleep, recovery, HR, and workouts. The core provider-priority engine works here to automatically resolve conflicts and eliminate duplicate entries across all connected devices globally. |
+| **Aurora Plus** *(Low-cost subscription)* | Self-coached athletes, amateur racers, and serious data geeks (marathoners, cyclists, runners, triathletes, heavy lifters). | **Deep Performance Analytics:** Adds athlete-managed training-phase tagging (base, build, peak, taper) and lactate tracking. Users can log blood lactate directly into workout timelines to override and correct heat-distorted heart rate zones. Includes custom strength logs with RPE markers. |
+| **Aurora Pro** *(Premium B2B subscription)* | Professional coaches, clubs, national teams, and sports organizations. | **The B2B Coach-Athlete Ecosystem:** Unlocks a dedicated team management dashboard and multi-user access grants. Features a "Traffic-Light" readiness engine (Red/Yellow/Green) calculated from aggregate athlete load. Fully integrates GymAware hardware to map velocity-based data across the entire roster. |
 
-### AI strategy: precision data, not premium models
+AI-driven training analysis (described below) is available across Plus and Pro tiers, fed by the clean-data pipeline that the Free tier already builds.
 
-The conventional wisdom in 2025–2026 is "pay for the best LLM you can afford." Aurora bets the opposite way. A general-purpose model fed with provider-priority-resolved data, an explicit training-phase tag, the athlete's sport and lactate baseline, and the actual goal of the current block will outperform a state-of-the-art model fed raw HR streams from two contradicting devices.
+### AI Strategy: Clean Data In, Clean Insights Out
 
-The bottleneck for athletic AI advice is never model capability — it's context-window quality. Most consumer AI features in fitness apps lose because they get fed soup: contradictory HR zones from two devices, no phase awareness, no lactate baseline, no goal. Garbage in, confident garbage out.
+The current hype is all about burning money on the most expensive, state-of-the-art LLMs. Aurora takes the opposite approach: garbage in, confident garbage out.
 
-Aurora is designed around the inverse principle: give an ordinary model the cleanest possible inputs, and it will produce analysis that's genuinely useful. A monthly review can answer concrete questions — "what did I focus on this month?", "how much did my threshold power grow?", "did I execute the taper correctly?" — because every signal it sees has been through Aurora's dedup, owner-verified, lactate-corrected pipeline.
+An elite model fed with raw, contradicting heart rate streams from two different devices will just hallucinate with high confidence. The real issue with athletic AI insights isn't that the models are dumb — it's that their context is completely broken.
 
-This also keeps the unit economics sane. A flat-rate cheap model plus clean data scales to 100K users at a fraction of the cost of "premium model plus dirty data," and the output quality is materially higher.
+Aurora operates on a simple principle: give an ordinary, low-cost model the cleanest possible inputs, and it will outperform a premium model fed with raw data soup.
+
+```
+[Raw Wearable Data] ──> [Aurora Dedup & Lactate Correction] ──> [Cheap LLM + High Context] ──> Elite Insights
+[Raw Wearable Data] ──────────────────────────────────────────> [Premium LLM + Dirty Context] ──> Confident Garbage
+```
+
+By passing data through Aurora's deduplication, owner-verification, and lactate-corrected pipeline, a standard model can easily answer high-value, concrete questions:
+
+- "Did I execute my taper phase correctly before the race?"
+- "How much did my threshold power actually grow relative to my metabolic response?"
+- "What was my primary physiological focus during this training block?"
+
+#### Unit economics that scale
+
+This data-first approach completely flips the feature's unit economics. Running a flat-rate, lightweight model against perfectly structured context allows the platform to scale to 100K+ users at a fraction of the cost of premium API tokens, while delivering materially higher output quality.
 
 ---
 
@@ -59,21 +74,24 @@ This repository contains the **backend foundation** of Aurora — the authentica
 - **Authentication & accounts** — custom User model (email-based, with role choices for athlete / coach / admin), JWT auth via SimpleJWT with token rotation and blacklist on logout, self-registration endpoint, profile management API
 - **Soft-delete & GDPR compliance** — `schedule_account_deletion` service flips `deleted_at` and dispatches a Celery task to scrub raw payloads; a custom JWT authentication rule rejects tokens for soft-deleted users immediately; audit log rows preserve user-id and email snapshots that survive the eventual hard-delete
 - **Domain models** — `Workout`, `WorkoutRawPayload` (separated for hot-table performance), `HealthMetrics`, `LactateMeasurement`, `UserPhysioProfile` (HR / Power zones with manual or method-driven calculation), `DataSource` (with encrypted tokens), `SportType` (with parent-child hierarchy), `AuditLog` (with snapshot fields)
-- **Provider-priority deduplication** — overlapping workout time windows resolved by source ranking (Garmin > Strava > manual entry); same-day health metrics elected to primary by health-domain ranking (Oura / Whoop > Garmin for sleep)
+- **Strava OAuth + sync** — full OAuth 2.0 flow with refresh token rotation, paginated activity sync, detail-fetch fallback, FIT-format-aware sport mapping, raw payload preservation via SHA256 idempotency
+- **Whoop OAuth + sync** — Whoop v2 API integration (workouts, recovery, sleep), cursor-based pagination with safety limits, in-memory date-merge for recovery+sleep into single HealthMetrics row, naps preserved in raw payloads for future Nap model
+- **Provider-priority deduplication** — overlapping workout time windows resolved by source ranking (Strava > Whoop > Apple Health > manual); validated on real production data across 7 days with 10 cross-source overlap pairs correctly deduplicated and zero primary-vs-primary integrity violations
 - **Centralized authorization boundary** — `workouts/permissions.py` with `can_view` / `can_modify` predicates, fully tested, designed for v2 wiring alongside team workflows
 - **Field-level encryption** — Fernet-encrypted OAuth token storage with non-deterministic ciphertext and fail-loud decryption on corruption
-- **58 tests, 88% coverage** — core security paths (auth, IDOR protection, soft-delete, encryption, audit log) at 90–100%; intentional gaps documented in `TECH_DEBT.md`
+- **80 tests, 75% overall coverage** — core security paths (auth, IDOR, soft-delete, encryption, audit log) at 90–100%; dedup engine at 88%; integration layers (Strava/Whoop OAuth + sync) verified manually pending mocked HTTP tests; full breakdown in [`COVERAGE.md`](./COVERAGE.md), intentional gaps documented in [`TECH_DEBT.md`](./TECH_DEBT.md)
 
 ### What's deliberately NOT built yet
 
 To keep scope honest, here's what this repository does **not** contain. The architecture is designed to absorb each of these without schema rewrites — the work simply hasn't been done.
 
-- **Live OAuth sync flows** — the `DataSource` model with encrypted token storage exists, but the OAuth-redirect / token-refresh flow per provider (Strava, Garmin Connect, GymAware Cloud) is Phase 2 work.
+- **Garmin Connect + Apple Health sync** — Strava and Whoop OAuth flows are shipped, but Garmin Connect (closed dev API for personal apps) and Apple Health (XML file export parser) are Phase 2. GymAware Cloud awaits the Pro tier's team account model.
 - **Celery workers in production mode** — Celery tasks are defined and unit-testable, but no broker is configured for the v1 demo. Local development uses synchronous calls or mocks.
-- **Workout / HealthMetrics / LactateMeasurement HTTP endpoints** — the data models, serializers (with full validation and ownership protection), and dedup logic are ready. The HTTP view layer for these resources lands alongside OAuth sync.
+- **Workout / HealthMetrics / LactateMeasurement DRF API endpoints** — data is already viewable via Django Admin (`/admin/workouts/...`) with custom inline HealthMetrics relationships and dedup links, but a programmatic JSON API (DRF ViewSets for frontend/mobile clients) is planned for Phase 2 alongside Apple Health. Strava and Whoop currently land through their own `/sync/` views with built-in idempotency.
 - **Coach features** — the Pro tier (Coach Dashboard, traffic-light engine, team views, team-account-to-athlete mapping for GymAware) is intentionally deferred. The data model is designed to accept it without restructuring.
 - **AI analysis layer** — described in the Vision section above. v1 ships the clean-data infrastructure; the AI advisor is built on top of it in Phase 2.
 - **Frontend** — this repository is backend-only. Frontend / mobile clients are planned but out of scope here.
+- **Production deploy** — Aurora runs locally on PostgreSQL 15 for v1. Fly.io / Railway deploy with managed Postgres is queued for Phase 2.
 
 This split is intentional. v1 is the **load-bearing foundation**: every architectural decision in this repository is informed by the v2 / v3 features it will eventually support.
 
@@ -88,9 +106,10 @@ This split is intentional. v1 is the **load-bearing foundation**: every architec
 | Web framework | Django 6.0 + DRF 3.17 | |
 | Database | PostgreSQL 15+ | Required for partial unique constraints with `nulls_distinct=False` and `select_for_update(of=...)` on nullable-FK joins |
 | Authentication | SimpleJWT 5.5 | Token rotation, blacklist on logout, custom soft-delete rejection rule |
-| Async tasks | Celery 5.6 | Soft-delete payload cleanup; OAuth sync flows in Phase 2 |
+| OAuth integrations | Strava (v3, refresh rotation), Whoop (v2, cursor pagination) | Shipped with `responses`-style mocked tests planned next |
+| Async tasks | Celery 5.6 | Soft-delete payload cleanup; provider webhooks in Phase 2 |
 | Encryption | `cryptography` (Fernet) | Symmetric encryption for stored OAuth tokens (non-deterministic ciphertext) |
-| Testing | pytest + pytest-django + pytest-cov | 58 tests, 88% coverage |
+| Testing | pytest + pytest-django + pytest-cov | 80 tests, 75% overall, 88% on dedup engine |
 
 ---
 
@@ -171,7 +190,7 @@ pytest -v                                   # Verbose output
 pytest --cov --cov-report=term-missing      # With coverage breakdown
 ```
 
-Expected: **58 passed**, ~88% coverage.
+Expected: **80 passed**, ~75% overall coverage (88% on dedup engine).
 
 ---
 
@@ -185,10 +204,10 @@ A handful of design decisions in this codebase that I expect a senior reviewer t
 Two devices recording the same event is the rule, not the exception. A Garmin watch and a Whoop strap both register a morning ride. An Oura ring and a Garmin both score sleep. Naively merging produces duplicates and contradictions.
 
 Aurora resolves this by **domain-aware source ranking**, encoded in two priority maps:
-*   `WORKOUT_SOURCE_PRIORITY`: Garmin > Polar > Wahoo > Strava > Apple Health > Whoop > Oura > manual.
+*   `WORKOUT_SOURCE_PRIORITY`: Strava (70) > Garmin (60) > Polar (50) > Wahoo (40) > Whoop (30) > Apple Health (20) > Oura (10) > manual (0).
 *   `HEALTH_SOURCE_PRIORITY`: Oura > Whoop > Apple Health > Garmin > Polar > manual.
 
-On every insert, the service layer opens a row-level lock via `select_for_update(of=('self',))` on candidate records within a 5-minute sync window. It computes an `effective_end` (handling records without an explicit end time via `Coalesce(end_time, date + duration)`) and elects the highest-priority record as primary. Losing rows are demoted to non-primary with a `duplicate_of` foreign key back to the winner. 
+On every insert, the service layer opens a row-level lock via `select_for_update(of=('self',))` on candidate records that overlap in time. It computes an `effective_end` (handling records without an explicit end time via `Coalesce(end_time, date + duration)`) and uses **overlap-percentage logic** (`MIN_OVERLAP_RATIO = 0.5` of the longer duration) plus a `sport_type` filter to identify same-workout candidates — this avoids the brick-training trap where a cycling + running sequence would naively collapse into one record. Highest-priority source becomes primary; losing rows are demoted to non-primary with a `duplicate_of` foreign key back to the winner. Equal-priority ties resolved by duration (shorter wins as more focused). 
 
 A database-level `CheckConstraint` ensures that no row can be marked as primary while simultaneously holding a `duplicate_of` link—preventing corrupt or partial data states physically at the DB level. Race losers fail loudly via a unique constraint on `(source, external_id)`, which handles concurrent webhook retries gracefully.
 
@@ -294,32 +313,36 @@ A few things worth pointing out about this flow:
 
 ## Testing
 
-58 tests, 88% overall coverage. Hot paths — authentication, IDOR protection, soft-delete, encryption, audit log — sit at **90–100%**, which is where security regressions matter most.
+80 tests, **75% overall coverage**. Hot paths — authentication, IDOR protection, soft-delete, encryption, audit log, dedup engine — sit at **88–100%**, which is where security regressions and business-logic bugs matter most. Integration code (Strava/Whoop OAuth + sync) is lower because external API mocking is queued for next phase — see [`COVERAGE.md`](./COVERAGE.md) for the full breakdown and reasoning.
 
 ### Coverage by module (security-critical first)
 
 | Module | Coverage | What the tests pin |
 |---|---|---|
-| `users/views.py` | 100% | Profile API retrieve / update flows |
+| `workouts/permissions.py` | 100% | Authorization predicate truth tables; fail-closed defaults |
 | `users/services/registration.py` | 100% | Atomic user + profile creation; signal-safe path |
 | `users/services/account_deletion.py` | 100% | Soft-delete + Celery dispatch outside atomic + audit log |
-| `workouts/permissions.py` | 100% | Authorization predicate truth tables; fail-closed defaults |
-| `workouts/views.py` | 100% | `UserPhysioProfile` CRUD with IDOR-safe `get_queryset` |
+| `users/views.py` | 100% | JWT auth endpoints (login, refresh, blacklist, register, profile) |
+| `workouts/services/audit.py` | 96% | Audit logging with PII masking, snapshot fields |
 | `workouts/crypto.py` | 93% | Fernet round-trip, non-deterministic ciphertext, fail-loud corruption, config errors |
 | `users/serializers.py` | 90% | Validation rules, age constraints, partial-update plumbing |
-| `workouts/serializers.py` | 85% | Provider-priority dedup, per-FK ownership, race-safe primary election |
+| `workouts/services/dedup.py` | **88%** | Cross-source dedup engine (11 edge-case tests: overlap %, sport-type filter, priority resolution, brick training, battery-die documented limitation) |
+| `workouts/serializers.py` | 84% | Validation, per-FK ownership checks, HealthMetrics primary election |
+| `users/models.py` | 82% | User manager, soft-delete query path, email masking |
 | `workouts/models.py` | 81% | Constraints, custom `save()` guards, audit-log immutability |
-| `users/models.py` | 71% | User manager, soft-delete query path |
 | `workouts/sanitize.py` | 67% | Forbidden-key recursive scan |
-| `workouts/tasks.py` | 41% | Module-level only — Celery broker integration deferred to Phase 2 |
-| `workouts/mixins.py` | 36% | `UserOwnedMixin` — full exercise via real views deferred to Phase 2 |
-| **Total** | **88%** | |
+| `workouts/tasks.py` | 43% | Module-level only — Celery broker integration deferred to Phase 2 |
+| `workouts/views.py` | 37% | OAuth callback + sync views — external HTTP flows verified manually |
+| `workouts/mixins.py` | 36% | `UserOwnedMixin` — exercised via views, direct unit tests deferred |
+| `workouts/strava.py` | 22% | Strava OAuth + sync — verified manually with multi-day production data |
+| `workouts/whoop.py` | 13% | Whoop v2 OAuth + sync — verified manually with multi-day production data |
+| **Total** | **75%** | (Mocked integration tests planned to lift this to ~92%) |
 
 ### What's actually tested
 
 - **Authentication & soft-delete** (`users/tests/test_auth.py`, `test_register.py`) — login, refresh rotation, blacklist on logout, soft-deleted user gets 401, inactive user gets 401, full truth table for the custom auth rule.
 
-- **Deduplication race-safety** (`workouts/tests/test_deduplication.py`) — higher-priority workout wins retroactively against an existing lower-priority record; incoming lower-priority becomes a duplicate immediately; same-day health metric election by source priority.
+- **Deduplication edge cases** (`workouts/tests/test_deduplication.py`, 11 tests) — higher-priority workout wins retroactively against existing lower-priority record; incoming lower-priority becomes duplicate immediately; same-day health metric election by source priority; brick-training sequences (cycling + running) correctly NOT collapsed via `sport_type` filter; sequential workouts with low overlap remain separate; equal-priority ties resolved by duration (shorter wins); typical cross-source overlap (Whoop envelope around Strava) deduplicated; exact identical times deduplicated; battery-die known limitation documented (low overlap ratio when one source truncates); cross-midnight workout dedup correct; null `end_time` falls back to `date + duration` via `Coalesce`.
 
 - **IDOR / cross-user access** (`workouts/tests/test_idor.py`) — GET list returns only own profiles; GET / PATCH / DELETE on foreign profile returns **404 (not 403)**; serializer rejects foreign-user FK in `source` / `user_physio_profile` / `duplicate_of` fields; the create endpoint ignores `user` field in request body (anti-ownership-forging).
 
@@ -331,14 +354,14 @@ A few things worth pointing out about this flow:
 
 ### Honest gaps
 
-- **Celery workers in production mode** — tasks are mocked in unit tests via `unittest.mock.patch`. Integration with a real broker (Redis / RabbitMQ) lands in Phase 2 alongside the OAuth sync flow.
-- **Workout / HealthMetrics / LactateMeasurement HTTP endpoints** — not built in v1 (see *What's built* above). Serializer-level coverage is already 85%; view-level tests land alongside those views.
-- **`UserOwnedMixin` and `sanitize_payload`** — exercised only indirectly through audit-log write paths in the current suite. Direct unit tests will land when the sync flow puts them under real provider data.
+- **Strava / Whoop OAuth + sync code** (`workouts/strava.py` 22%, `workouts/whoop.py` 13%) — verified manually with multi-day real production data, caught real bugs (race conditions, schema overflow, kJ semantics). Mocked HTTP integration tests planned via `responses` library — should lift both to 80%+.
+- **Celery workers in production mode** — tasks are mocked in unit tests via `unittest.mock.patch`. Integration with a real broker (Redis / RabbitMQ) lands in Phase 2 alongside the periodic sync flow.
+- **`UserOwnedMixin` and `sanitize_payload`** — exercised only indirectly through audit-log write paths in the current suite. Direct unit tests will land when read-side ViewSets get wired up.
 
 ### Running the suite
 
 ```bash
-pytest                                         # All 58 tests
+pytest                                         # All 80 tests
 pytest -v                                      # Verbose
 pytest --cov --cov-report=term-missing         # Full coverage breakdown
 pytest workouts/tests/test_idor.py -v          # Single file
@@ -351,13 +374,16 @@ pytest -k "soft_delete"                        # By keyword pattern
 
 The planned progression beyond v1. Timelines are deliberately not committed — Aurora is a portfolio project today, and milestone ordering depends on which integrations get prioritized first. The architecture in this repository is designed to support all of the following without schema rewrites.
 
-### Phase 2 — Sync, endpoints, and first AI
+### Phase 2 — Apple Health, deploy, and first AI
 
-The next iteration adds live data flowing in from providers and the first AI analysis layer on top of the clean-data foundation.
+Strava (OAuth + sync) and Whoop (OAuth + sync) shipped in v1. Phase 2 closes the remaining personal-data gaps, adds production deploy, and ships the first AI layer on top of the clean-data foundation.
 
-- **OAuth and token-based sync flows** — Strava (OAuth), Garmin Connect (OAuth), GymAware Cloud (API token + Account ID). Each provider gets its own sync task with provider-specific payload normalization, all funneling into the existing `WorkoutRawPayload` table with `payload_sha256` idempotency.
+- **Apple Health XML import** — file-upload endpoint that parses the user's exported Health archive (no API needed). Most popular athletic data source; works for users without Strava/Whoop accounts.
+- **Garmin Connect via FIT-file upload** — Garmin's developer API is closed to personal apps, so Phase 2 uses Garmin Connect's manual FIT export instead. Parser via `fitparse`; raw payload preservation pattern identical to Strava/Whoop.
+- **Production deploy** — Fly.io or Railway with managed PostgreSQL, Swagger / OpenAPI documentation publicly reachable.
 - **Celery broker in production mode** — Redis or RabbitMQ wired in; tasks dispatched from `schedule_account_deletion` and from periodic sync schedules; Flower dashboard for observability.
-- **Workout / HealthMetrics / LactateMeasurement HTTP endpoints** — full DRF ViewSets with filtering, pagination, and the same per-FK ownership / IDOR-404 protection patterns established in v1.
+- **Mocked integration tests** — `responses` or `vcrpy` library to mock Strava/Whoop API responses, lifting `workouts/strava.py` and `workouts/whoop.py` coverage from current 13–22% to 80%+.
+- **Workout / HealthMetrics / LactateMeasurement HTTP read endpoints** — full DRF ViewSets with filtering, pagination, and the same per-FK ownership / IDOR-404 protection patterns established in v1.
 - **Athlete-managed training-phase tagging** — base / build / peak / taper attached to date ranges per user-sport combination. The AI advisor reads this as primary context.
 - **AI advisor MVP** — monthly and weekly reviews. Answers concrete questions: *"what did I focus on this month?"*, *"how much did my threshold power grow?"*, *"did I execute the taper correctly?"*. Uses the cheap-model + clean-data strategy described in the Vision section.
 
@@ -376,7 +402,7 @@ The Pro tier turns Aurora from a personal data hub into a coach-athlete platform
 The longer-term horizon — partly waiting on hardware maturity, partly on the AI advisor to mature on top of richer data.
 
 - **Continuous glucose monitor integration** — Dexcom and Abbott Libre via their respective APIs and aggregators. Glucose joins lactate as a metabolic signal in the AI context window.
-- **Continuous lactate monitor integration** — when commercially available (sweat-patch and optical sensors from several EU and US startups, 2027–2030 horizon). Aurora's `LactateMeasurement` schema already supports high-frequency inserts; the new sync source plugs into the existing priority engine without schema changes.
+- **Continuous lactate monitor integration** — when commercially available (sweat-patch and optical sensors from several EU and US startups on the upcoming 2027–2030 horizon). Aurora's `LactateMeasurement` schema already supports high-frequency inserts; the new sync source plugs into the existing priority engine without schema changes.
 - **Strength-training schema** — dedicated `StrengthSession` and `StrengthSet` models for velocity-based training data (mean velocity, peak velocity, power per rep, per-set RPE). Bridges with the existing GymAware integration on the data side.
 - **AI advisor v2** — year-over-year comparisons, periodization quality scoring, predictive overtraining detection. Built on top of the v1 advisor and the now-richer dataset.
 
@@ -396,15 +422,15 @@ Fifteen years on the Kazakhstan national short-track speed skating team. Selecte
 - **2019 Universiade** — bronze
 - Multi-time Kazakhstan national champion
 
-I'm transitioning from professional sport into software engineering, self-taught through Coursera (Meta Backend Developer certificate) and late evenings between training blocks. Aurora is both my portfolio project and the platform I would have wanted as an athlete for the last decade and a half — built from inside the problem rather than around it.
+I have transitioned from professional sport into software engineering, self-taught through deep-dive technical resources, core documentation, and late evenings between training blocks. Aurora is both my portfolio project and the platform I would have wanted as an athlete for the last decade and a half — built from inside the problem rather than around it.
 
-This is my first portfolio-scale backend. Every architectural decision in this repository is informed by fifteen years of being on the user side of platforms that got it wrong. That tradeoff — deep domain knowledge from one direction, an engineering learning curve from the other — is what I bring to a backend team.
+This is my first portfolio-scale backend. Every architectural decision in this repository is informed by fifteen years of being on the user side of platforms that got it wrong. That tradeoff — deep, elite-level domain knowledge from one direction, and a solid engineering mindset from the other — is what I bring to a backend team.
 
 ---
 
-**Reach me:** mersaidz.dev@gmail.com
+**Reach me:** mersaidz.dev@gmail.com  
 **Code:** [github.com/mersaidz/aurora-backend](https://github.com/mersaidz/aurora-backend)  
-**LinkedIn:** *launching soon — link will be added here*
+**LinkedIn:** [linkedin.com/in/mersaidz/](https://www.linkedin.com/in/mersaidz/)
 
 ---
 
